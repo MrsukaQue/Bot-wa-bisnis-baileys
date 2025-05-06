@@ -1,3 +1,4 @@
+const fs = require('fs');
 const {
   makeWASocket,
   useMultiFileAuthState,
@@ -118,68 +119,111 @@ async function connectBot() {
       await reply("👋 Hai! Ketik */start* untuk memulai.");
     }
 
-    // Bukti transfer via caption
-    if (msg.message.imageMessage?.caption) {
-      const caption = msg.message.imageMessage.caption.toLowerCase();
-      if (caption.includes("pemesanan") || caption.includes("transfer")) {
-        await sock.sendMessage(OWNER_JID, { forward: msg });
-        console.log("📨 Bukti transfer dikirim ke admin.");
-        await delay(1000);
-        await reply("✅ Bukti sudah dikirim ke admin. Mohon tunggu konfirmasi ya!");
-        return;
-      }
-    }
-
-    // Tangani keluhan
-    if (keluhanState[senderJid] && !text?.startsWith("/")) {
-      try {
-        await sock.sendMessage(OWNER_JID, {
-          text: `📩 *Keluhan Baru dari* wa.me/${sender}\n\n${text}`,
-        });
-        await delay(1000);
-        await reply("✅ Keluhan kamu telah dikirim ke admin. Terima kasih!");
-        delete keluhanState[senderJid];
-      } catch (err) {
-        console.error("❌ Gagal kirim keluhan:", err);
-        await delay(1000);
-        await reply("❌ Gagal mengirim keluhan. Silakan coba lagi.");
-      }
-      return;
-    }
-
-    if (text?.toLowerCase() === "/keluar") {
-      delete keluhanState[senderJid];
-      delete activeChats[senderJid];
-      greetedUsers[senderJid] = false;
-      await delay(900);
-      await reply(`🙏 Terima kasih telah menghubungi *${BOT_NAME}*. Sampai jumpa!\n\nKamu masih bisa akses:\n• /pemesanan\n• /cekpesanan`);
-      return;
-    }
-
-    if (!text || !text.startsWith("/")) return;
-    const command = text.trim().toLowerCase();
-    console.log(chalk.yellow(`📥 Pesan dari ${sender}: ${command}`));
-
-    // ========== FITUR BARU ==========
-
-    if (command === "/pemesanan") {
-      const orderFormat = "🛒 *Format Pemesanan:*\nNama:\nAlamat:\nNo HP:\nProduk:\nUkuran/Varian:\nJumlah:\nPembayaran:";
-      await sock.sendMessage(OWNER_JID, {
-        text: `📨 *Pesanan Baru dari* wa.me/${sender}\n\n${orderFormat}`,
-      });
-      await delay(800);
-      await reply("✅ Format pemesanan telah dikirim ke admin. Silakan isi format di atas.");
-      return;
-    }
-
-    if (msg.message.imageMessage?.caption) {
-      const caption = msg.message.imageMessage.caption.toLowerCase();
+    // Tangani bukti pembayaran berupa foto
+    if (msg.message.imageMessage) {
+      const caption = msg.message.imageMessage.caption?.toLowerCase() || "";
       if (caption.includes("pembayaran")) {
         await sock.sendMessage(OWNER_JID, { forward: msg });
         console.log("📨 Bukti pembayaran dikirim ke admin.");
-        await reply("✅ Bukti pembayaran sudah dikirim ke admin. Mohon tunggu konfirmasi ya!");
+        await reply(
+          "✅ Bukti pembayaran sudah dikirim ke admin. Mohon tunggu konfirmasi ya!"
+        );
         return;
       }
+    }
+
+    // Fitur /keluhan
+    if (text?.toLowerCase() === "/keluhan") {
+      const keluhanId = Math.random().toString(36).substr(2, 8); // Generate a unique ID
+      keluhanState[senderJid] = keluhanId; // Save the ID in keluhanState
+      await reply(`🗣️ Silakan ketik keluhan kamu langsung di chat ini. Format:
+Nama:
+No Pesanan:
+Keluhan:
+
+Keluhan ini akan disimpan dengan ID: ${keluhanId}.
+Admin dapat menanggapi keluhan kamu menggunakan perintah */tanggap ${keluhanId}*.`);
+      return;
+    }
+
+    // Tangani keluhan pengguna
+    if (keluhanState[senderJid] && !text?.startsWith("/")) {
+      try {
+        const keluhanId = keluhanState[senderJid];
+        const complaintText = `Keluhan ID: ${keluhanId}\nPengguna: wa.me/${sender}\nPesan: ${text}\n\n`;
+
+        // Save the complaint to a .txt file
+        const filePath = `./keluhan_${keluhanId}.txt`;
+        fs.writeFileSync(filePath, complaintText, { flag: "w" }); // Write to file (overwrite if exists)
+
+        await sock.sendMessage(OWNER_JID, {
+          text: `📩 *Keluhan Baru dari* wa.me/${sender}
+ID: ${keluhanId}
+Pesan: ${text}
+
+Keluhan ini telah disimpan di file: ${filePath}`,
+        });
+
+        await delay(1000);
+        await reply(
+          "✅ Keluhan kamu telah disimpan dan dikirim ke admin. Terima kasih!"
+        );
+        delete keluhanState[senderJid]; // Remove the keluhan state after saving
+      } catch (err) {
+        console.error("❌ Gagal menyimpan keluhan:", err);
+        await delay(1000);
+        await reply("❌ Gagal menyimpan keluhan. Silakan coba lagi.");
+      }
+      return;
+    }
+
+    // Fitur /pemesanan
+    if (text?.toLowerCase() === "/pemesanan") {
+      const pemesananId = Math.random().toString(36).substr(2, 8); // Generate a unique ID
+      pemesananState[senderJid] = pemesananId; // Save the ID in pemesananState
+      await reply(`🛒 Silakan ketik detail pesanan kamu dengan format berikut:
+Nama:
+Alamat:
+No HP:
+Produk:
+Jumlah:
+Pembayaran:
+
+Pesanan ini akan disimpan dengan ID: ${pemesananId}.
+Admin dapat mengonfirmasi pesanan kamu menggunakan perintah */accept ${pemesananId}*.`);
+      return;
+    }
+
+    // Tangani detail pesanan pengguna
+    if (pemesananState[senderJid] && !text?.startsWith("/")) {
+      try {
+        const pemesananId = pemesananState[senderJid];
+        const orderText = `Pesanan ID: ${pemesananId}\nPengguna: wa.me/${sender}\nDetail Pesanan:\n${text}\n\n`;
+
+        // Save the order to a .txt file
+        const filePath = `./pemesanan_${pemesananId}.txt`;
+        fs.writeFileSync(filePath, orderText, { flag: "w" }); // Write to file (overwrite if exists)
+
+        await sock.sendMessage(OWNER_JID, {
+          text: `📩 *Pesanan Baru dari* wa.me/${sender}
+ID: ${pemesananId}
+Detail Pesanan:
+${text}
+
+Pesanan ini telah disimpan di file: ${filePath}`,
+        });
+
+        await delay(1000);
+        await reply(
+          "✅ Pesanan kamu telah disimpan dan dikirim ke admin. Terima kasih!"
+        );
+        delete pemesananState[senderJid]; // Remove the pemesanan state after saving
+      } catch (err) {
+        console.error("❌ Gagal menyimpan pesanan:", err);
+        await delay(1000);
+        await reply("❌ Gagal menyimpan pesanan. Silakan coba lagi.");
+      }
+      return;
     }
 
     if (command === "/accept" && senderJid === OWNER_JID) {
@@ -271,8 +315,11 @@ async function connectBot() {
         reply(`✨ Selamat datang di *${BOT_NAME}*! Saya adalah Asisten Virtual yang siap membantu kamu 24/7.\nKetik */menu* untuk melihat semua fitur yang tersedia.`);
         break;
       case "/menu":
-        await delay(1200);
-        reply(`╭───〔 *📋 MENU UTAMA - ${BOT_NAME}* 〕───╮
+  await delay(1200);
+  const menuImageBuffer = fs.readFileSync("./media/image.jpg"); // Replace with the path to your image
+  await sock.sendMessage(senderJid, {
+    image: menuImageBuffer,
+    caption: `╭───〔 *📋 MENU UTAMA - ${BOT_NAME}* 〕───╮
 │
 │  🛍️ *Info & Pemesanan*
 │  • /produk - Lihat katalog
@@ -290,8 +337,9 @@ async function connectBot() {
 │
 │  ❓ *Bantuan*
 │  • /help
-╰────────────────────────────╯`);
-        break;
+╰────────────────────────────╯`,
+  });
+  break;
       case "/produk":
         await delay(900);
         reply("📦 Katalog produk kami bisa dicek di: https://linktokatalog.com");
@@ -326,10 +374,18 @@ async function connectBot() {
         reply("❓ Gunakan */menu* untuk melihat semua fitur yang tersedia.");
         break;
       case "/keluhan":
-        keluhanState[senderJid] = true;
-        await delay(1000);
-        reply("🗣️ Silakan ketik keluhan kamu langsung di chat ini.\nFormat:\nNama:\nNo Pesanan:\nKeluhan:\n\nSetelah kamu kirim, keluhan ini akan diteruskan ke admin.");
-        break;
+  const keluhanId = Math.random().toString(36).substr(2, 8); // Generate a random unique ID
+  keluhanState[senderJid] = keluhanId; // Save the ID in keluhanState
+  await delay(1000);
+  reply(`🗣️ Silakan ketik keluhan kamu langsung di chat ini.
+Format:
+Nama:
+No Pesanan:
+Keluhan:
+
+Setelah kamu kirim, keluhan ini akan diteruskan ke admin dengan ID: ${keluhanId}.
+Admin dapat menanggapi keluhan kamu menggunakan perintah */tanggap ${keluhanId}*.`);
+  break;
       default:
         await delay(800);
         reply("⚠️ Perintah tidak dikenali. Gunakan */menu* untuk melihat opsi yang tersedia.");
